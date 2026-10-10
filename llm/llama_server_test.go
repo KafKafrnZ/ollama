@@ -1725,6 +1725,21 @@ func TestLlamaServerEmbedding(t *testing.T) {
 	}
 }
 
+func TestLlamaServerSystemOnePromptOverContext(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		fmt.Fprint(w, `{"error":{"code":500,"message":"input (9000 tokens) is too large to process. increase the physical batch size (current batch size: 8192)","type":"server_error"}}`)
+	}))
+	defer srv.Close()
+	runner := &llamaServerRunner{port: srv.Listener.Addr().(*net.TCPAddr).Port, client: srv.Client(), cmd: fakeRunningCmd(), sem: semaphore.NewWeighted(1)}
+
+	_, _, err := runner.SystemOne(t.Context(), json.RawMessage(`"x"`), json.RawMessage(`{"q":{"type":"noul","instructions":"q"}}`), nil)
+	var serr api.StatusError
+	if !errors.As(err, &serr) || serr.StatusCode != http.StatusBadRequest || serr.ErrorMessage != promptTooLongMessage {
+		t.Fatalf("err = %v, want 400 %q", err, promptTooLongMessage)
+	}
+}
+
 func TestLegacyEmbeddingsWereRaw(t *testing.T) {
 	tests := []struct {
 		name string

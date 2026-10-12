@@ -137,6 +137,7 @@ func TestSystemOneHandler(t *testing.T) {
 	createSafetensorsTestModel(t, "go-template", config, []manifest.Layer{params, system, goTemplate})
 	for _, gguf := range []struct{ name, architecture, decisionType, renderer string }{
 		{"renamed-clef", "clef", "clef", ""},
+		{"old-clef", "qwen35", "clef", ""},
 		{"laya-native", "modern-bert", "laya", ""},
 		{"gguf-tev1", "qwen35", "", "tev1"},
 	} {
@@ -196,6 +197,7 @@ func TestSystemOneHandler(t *testing.T) {
 		{"invalid schema", `{"model":"decision-test","state":"x","questions":{}}`, nil, 400, 0, false},
 		{"invalid Clef schema", `{"model":"safetensors-clef","state":"x","questions":{}}`, nil, 400, 0, false},
 		{"old-format decision GGUF", `{"model":"gguf-tev1","state":"x","questions":{"refund":{"type":"noul","instructions":"q"}}}`, nil, 400, 0, false},
+		{"old-format Clef GGUF", `{"model":"old-clef","state":"x","questions":{"refund":{"type":"noul","instructions":"q"}}}`, nil, 400, 0, false},
 		{"llama.cpp 65 questions", nativeQuestions(65), nil, 400, 0, false},
 		{"llama.cpp empty state", `{"model":"laya-native","state":" ","questions":{"refund":{"type":"noul","instructions":"q"}}}`, nil, 400, 0, false},
 		{"omitted model", `{"state":"x","questions":{"x":{"type":"noul","instructions":"q"}}}`, nil, 400, 0, false},
@@ -264,8 +266,14 @@ func TestSystemOneHandler(t *testing.T) {
 				!strings.Contains(w.Body.String(), "score criteria must be an array of 2–10 levels") {
 				t.Fatalf("expected shared score validation error: %s", w.Body)
 			}
-			if tt.name == "old-format decision GGUF" && !strings.Contains(w.Body.String(), "ollama pull gguf-tev1") {
-				t.Fatalf("old decision GGUFs must ask for a re-download: %s", w.Body)
+			if strings.HasPrefix(tt.name, "old-format ") {
+				var sent decision.Request
+				if err := json.Unmarshal([]byte(tt.body), &sent); err != nil {
+					t.Fatal(err)
+				}
+				if !strings.Contains(w.Body.String(), "ollama pull "+sent.Model) {
+					t.Fatalf("old decision GGUFs must ask for a re-download: %s", w.Body)
+				}
 			}
 			if tt.name == "Clef decision only image" && !strings.Contains(w.Body.String(), "vision") {
 				t.Fatalf("expected missing vision capability: %s", w.Body)

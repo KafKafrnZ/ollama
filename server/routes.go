@@ -899,9 +899,12 @@ func (s *Server) GenerateHandler(c *gin.Context) {
 // systemOneLlamaServer hands a request for a GGUF decision model to llama-server,
 // which builds the model's own prompt and answers it.
 func (s *Server) systemOneLlamaServer(c *gin.Context, m *Model, req decision.Request, body []byte) {
-	if m.metadata.String("decision.type") == "" {
-		// Decision GGUFs made before llama.cpp supported them have no decision type.
-		if slices.Contains(m.Config.Capabilities, string(model.CapabilityDecision)) {
+	decisionType := m.metadata.String("decision.type")
+	// Old Clef GGUFs have a decision type but use qwen35; llama.cpp now
+	// requires the clef architecture and its converted decision head.
+	oldClef := decisionType == "clef" && m.metadata.String("general.architecture") == "qwen35"
+	if decisionType == "" || oldClef {
+		if oldClef || slices.Contains(m.Config.Capabilities, string(model.CapabilityDecision)) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("'%s' was downloaded in a format that is no longer supported. To re-download, run 'ollama pull %s'", m.ShortName, m.ShortName)})
 			return
 		}

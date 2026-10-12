@@ -1930,6 +1930,40 @@ func TestEmbeddingBatchSize(t *testing.T) {
 	}
 }
 
+func TestLlamaServerBatch(t *testing.T) {
+	tests := []struct {
+		name                 string
+		headBlocks, trainCtx uint64
+		numCtx, numBatch     int
+		completion           bool
+		wantBatch            int
+		wantMemory           uint64
+	}{
+		{"default generation", 0, 8192, 8192, 512, true, 512, 0},
+		{"medium generation", 0, 8192, 8192, 1024, true, 1024, 768 << 20},
+		{"large generation", 0, 8192, 8192, 2048, true, 2048, 2 << 30},
+		{"other non-completion models", 0, 8192, 8192, 2048, false, 2048, 0},
+		{"decision uses requested context", 4, 32768, 8192, 512, false, 8192, 2 << 30},
+		{"decision caps at trained context", 4, 1024, 8192, 512, false, 1024, 768 << 20},
+		{"decision without trained context", 4, 0, 8192, 512, false, 8192, 2 << 30},
+		{"decision with an already matching batch", 4, 8192, 8192, 8192, false, 8192, 2 << 30},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := loadTestGGUF(t, gguftest.KV{
+				"general.architecture":      "clef",
+				"clef.context_length":       tt.trainCtx,
+				"clef.decision.block_count": tt.headBlocks,
+			})
+			opts := api.Options{Runner: api.Runner{NumCtx: tt.numCtx, NumBatch: tt.numBatch}}
+			batch, memory := LlamaServerBatch(f, opts, tt.completion)
+			if batch != tt.wantBatch || memory != tt.wantMemory {
+				t.Fatalf("batch=%d memory=%d, want batch=%d memory=%d", batch, memory, tt.wantBatch, tt.wantMemory)
+			}
+		})
+	}
+}
+
 func TestAppendBatchArgs(t *testing.T) {
 	tests := []struct {
 		name        string

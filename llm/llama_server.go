@@ -105,6 +105,38 @@ func WithDefaultEmbeddingNumBatch(opts api.Options) api.Options {
 	return opts
 }
 
+// LlamaServerBatch resolves the batch size and extra memory allowance used
+// when deciding whether to load a model alongside other models.
+func LlamaServerBatch(f *gguf.Model, opts api.Options, completion bool) (int, uint64) {
+	batch := opts.NumBatch
+	// These decision heads read the whole prompt without a KV cache, so the
+	// physical batch must hold the entire effective context.
+	wholePrompt := f.KV().Uint("decision.block_count") > 0
+	if wholePrompt {
+		batch = opts.NumCtx
+		if trainCtx := int(f.KV().ContextLength()); trainCtx > 0 {
+			batch = min(batch, trainCtx)
+		}
+	}
+	if !completion && !wholePrompt {
+		return batch, 0
+	}
+	return batch, LlamaServerBatchMemory(batch)
+}
+
+// LlamaServerBatchMemory is the conservative extra memory allowance for a
+// generation or whole-prompt decision batch above the default batch size.
+func LlamaServerBatchMemory(batch int) uint64 {
+	switch {
+	case batch >= 2048:
+		return 2 << 30
+	case batch >= 1024:
+		return 768 << 20
+	default:
+		return 0
+	}
+}
+
 func boundedNumPredict(numPredict, numCtx int) int {
 	if numCtx <= 0 {
 		return numPredict
